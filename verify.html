@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="ubique-api-base" content="https://dev-nd.ubiquefashion.com" />
     <title>Ubique · Customer Verification</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -307,8 +308,11 @@
     <script>
       (function () {
         const params = new URLSearchParams(window.location.search);
-        const pathMatch = window.location.pathname.match(/\/v\/([^/]+)/i);
-        const verificationCode = pathMatch?.[1] || params.get("code") || "";
+        const verifyToken = params.get("token") || "";
+
+        const API_BASE_URL =
+          document.querySelector('meta[name="ubique-api-base"]')?.content ||
+          window.location.origin;
 
         const els = {
           boutiqueName: document.getElementById("boutiqueName"),
@@ -341,6 +345,11 @@
           })}`;
         }
 
+        function showError() {
+          els.verifyCard.classList.add("hidden");
+          els.errorState.classList.remove("hidden");
+        }
+
         function applyData(data) {
           const boutique = data.boutique_name || "Partner boutique";
           const customerName = data.customer_name || "Customer";
@@ -355,6 +364,8 @@
           if (data.avatar_url) {
             els.customerAvatar.src = data.avatar_url;
             els.customerAvatar.alt = customerName;
+            els.customerAvatar.classList.remove("hidden");
+            els.avatarFallback.classList.add("hidden");
           } else {
             els.customerAvatar.classList.add("hidden");
             els.avatarFallback.classList.remove("hidden");
@@ -362,19 +373,37 @@
           }
         }
 
-        // Demo data — replace with API fetch when backend endpoint is ready.
-        applyData({
-          boutique_name: "Sous Vintage · Navigli",
-          customer_name: "Cristina Singh",
-          member_since: "2024-03-01",
-          membership_label: "Cirqle Member",
-          avatar_url:
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=face",
-        });
+        async function loadVerifyDetails() {
+          if (!verifyToken) {
+            showError();
+            return;
+          }
 
-        if (verificationCode) {
-          document.title = `Ubique · Verify ${verificationCode}`;
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/verify/details?token=${encodeURIComponent(verifyToken)}`
+            );
+
+            if (!response.ok) {
+              showError();
+              return;
+            }
+
+            const payload = await response.json();
+            const data = payload?.data;
+
+            if (!data) {
+              showError();
+              return;
+            }
+
+            applyData(data);
+          } catch (error) {
+            showError();
+          }
         }
+
+        loadVerifyDetails();
       })();
     </script>
   </body>
