@@ -27,6 +27,10 @@
         --purple-text: #5925dc;
         --purple-badge-bg: #f4f3ff;
         --purple-badge-text: #6941c6;
+        --red-bg: #fef3f2;
+        --red-border: #fecdca;
+        --red-badge-bg: #fef3f2;
+        --red-badge-text: #b42318;
         --shadow: 0 8px 32px rgba(15, 21, 35, 0.08);
       }
 
@@ -189,6 +193,20 @@
         margin-bottom: 16px;
       }
 
+      .offer-box.no-membership {
+        background: var(--red-bg);
+        border-color: var(--red-border);
+      }
+
+      .member-badge.no-membership {
+        background: var(--red-badge-bg);
+        color: var(--red-badge-text);
+      }
+
+      .member-badge.no-membership .member-badge-dot {
+        background: var(--red-badge-text);
+      }
+
       .verify-note {
         padding: 14px 16px;
         border-radius: 12px;
@@ -239,10 +257,10 @@
           <span>UBIQUE</span>
           <span class="brand-verify">VERIFY</span>
         </div>
-        <div class="boutique-name" id="boutiqueName">Sous Vintage · Navigli</div>
+        <div class="boutique-name" id="boutiqueName"></div>
       </header>
 
-      <main class="card" id="verifyCard">
+      <main class="card hidden" id="verifyCard">
         <div class="status-badge" id="statusBadge">
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path
@@ -272,26 +290,24 @@
             CS
           </div>
           <div>
-            <h1 class="profile-name" id="customerName">Cristina Singh</h1>
-            <p class="profile-meta" id="customerSince">
-              Ubique customer since March 2024
-            </p>
+            <h1 class="profile-name" id="customerName"></h1>
+            <p class="profile-meta" id="customerSince"></p>
           </div>
         </div>
 
-        <div class="offer-box">
+        <div class="offer-box" id="offerBox">
           <div class="membership-row">
             <span class="membership-label">Membership</span>
             <span class="member-badge" id="membershipBadge">
               <span class="member-badge-dot"></span>
-              <span id="membershipLabel">Cirqle Member</span>
+              <span id="membershipLabel"></span>
             </span>
           </div>
         </div>
 
         <p class="verify-note" id="verifyNote">
           You're verifying for
-          <strong id="verifyBoutiqueName">Sous Vintage · Navigli</strong>.
+          <strong id="verifyBoutiqueName"></strong>.
           Confirm the code is shown in person by the customer.
         </p>
       </main>
@@ -321,6 +337,8 @@
           customerAvatar: document.getElementById("customerAvatar"),
           avatarFallback: document.getElementById("avatarFallback"),
           membershipLabel: document.getElementById("membershipLabel"),
+          membershipBadge: document.getElementById("membershipBadge"),
+          offerBox: document.getElementById("offerBox"),
           verifyBoutiqueName: document.getElementById("verifyBoutiqueName"),
           errorState: document.getElementById("errorState"),
           verifyCard: document.getElementById("verifyCard"),
@@ -351,26 +369,30 @@
         }
 
         function applyData(data) {
-          const boutique = data.boutique_name || "Partner boutique";
-          const customerName = data.customer_name || "Customer";
-          const membershipLabel = data.membership_label || "Cirqle Member";
-
-          els.boutiqueName.textContent = boutique;
-          els.verifyBoutiqueName.textContent = boutique;
-          els.customerName.textContent = customerName;
+          els.verifyCard.dataset.boutiqueId = data.boutique_id || "";
+          els.boutiqueName.textContent = data.boutique_name;
+          els.verifyBoutiqueName.textContent = data.boutique_name;
+          els.customerName.textContent = data.customer_name;
           els.customerSince.textContent = formatMemberSince(data.member_since);
-          els.membershipLabel.textContent = membershipLabel;
+          els.membershipLabel.textContent = data.membership_label;
+
+          const hasMembership = Boolean(data.has_membership);
+          els.offerBox.classList.toggle("no-membership", !hasMembership);
+          els.membershipBadge.classList.toggle("no-membership", !hasMembership);
 
           if (data.avatar_url) {
             els.customerAvatar.src = data.avatar_url;
-            els.customerAvatar.alt = customerName;
+            els.customerAvatar.alt = data.customer_name;
             els.customerAvatar.classList.remove("hidden");
             els.avatarFallback.classList.add("hidden");
           } else {
             els.customerAvatar.classList.add("hidden");
             els.avatarFallback.classList.remove("hidden");
-            els.avatarFallback.textContent = getInitials(customerName);
+            els.avatarFallback.textContent = getInitials(data.customer_name);
           }
+
+          els.verifyCard.classList.remove("hidden");
+          document.title = `Ubique · ${data.customer_name}`;
         }
 
         async function loadVerifyDetails() {
@@ -384,15 +406,10 @@
               `${API_BASE_URL}/verify/details?token=${encodeURIComponent(verifyToken)}`
             );
 
-            if (!response.ok) {
-              showError();
-              return;
-            }
-
             const payload = await response.json();
             const data = payload?.data;
 
-            if (!data) {
+            if (!response.ok || !data) {
               showError();
               return;
             }
