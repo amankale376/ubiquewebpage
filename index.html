@@ -363,8 +363,20 @@
           })}`;
         }
 
-        function showError() {
+        function isTokenExpired(token) {
+          try {
+            const payload = JSON.parse(atob(token.split(".")[1]));
+            return payload.exp * 1000 < Date.now();
+          } catch (error) {
+            return true;
+          }
+        }
+
+        function showError(message) {
           els.verifyCard.classList.add("hidden");
+          els.errorState.textContent =
+            message ||
+            "Unable to load verification details. Please scan the code again.";
           els.errorState.classList.remove("hidden");
         }
 
@@ -397,7 +409,14 @@
 
         async function loadVerifyDetails() {
           if (!verifyToken) {
-            showError();
+            showError("No verification token found. Please scan the code again.");
+            return;
+          }
+
+          if (isTokenExpired(verifyToken)) {
+            showError(
+              "This verification link has expired. Please scan the code again."
+            );
             return;
           }
 
@@ -410,13 +429,22 @@
             const data = payload?.data;
 
             if (!response.ok || !data) {
+              const apiMessage = payload?.message || "";
+              if (response.status === 401 && /expired/i.test(apiMessage)) {
+                showError(
+                  "This verification link has expired. Please scan the code again."
+                );
+                return;
+              }
               showError();
               return;
             }
 
             applyData(data);
           } catch (error) {
-            showError();
+            showError(
+              "Unable to reach the verification service. Please try again."
+            );
           }
         }
 
