@@ -439,6 +439,7 @@
 
         let qrScanner = null;
         let isProcessingScan = false;
+        let activeVerifyToken = null;
 
         function getInitials(name) {
           return (name || "")
@@ -538,28 +539,26 @@
           document.title = `Ubique · ${data.customer_name}`;
         }
 
-        function recordScan(token) {
-          fetch(`${API_BASE_URL}/verify/scan`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token }),
-          }).catch(() => {});
-        }
-
         async function verify(token) {
           if (!token) {
             showError("No verification token found. Please scan the code again.");
             return;
           }
 
-          if (isTokenExpired(token)) {
-            showError(
-              "This verification link has expired. Please scan the code again."
-            );
+          if (activeVerifyToken === token) {
             return;
           }
 
+          activeVerifyToken = token;
+
           try {
+            if (isTokenExpired(token)) {
+              showError(
+                "This verification link has expired. Please scan the code again."
+              );
+              return;
+            }
+
             const response = await fetch(
               `${API_BASE_URL}/verify/details?token=${encodeURIComponent(token)}`
             );
@@ -585,11 +584,14 @@
               `?token=${encodeURIComponent(token)}`
             );
             applyData(data);
-            recordScan(token);
           } catch (error) {
             showError(
               "Unable to reach the verification service. Please try again."
             );
+          } finally {
+            if (activeVerifyToken === token) {
+              activeVerifyToken = null;
+            }
           }
         }
 
