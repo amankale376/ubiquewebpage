@@ -11,6 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
       :root {
         --bg: #f4f4f5;
@@ -248,6 +249,78 @@
         font-size: 14px;
         text-align: center;
       }
+
+      .scanner-card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--card);
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        padding: 24px 20px;
+        text-align: center;
+      }
+
+      .scanner-title {
+        margin: 0 0 8px;
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .scanner-hint {
+        margin: 0 0 20px;
+        font-size: 14px;
+        color: var(--text-muted);
+        line-height: 1.5;
+      }
+
+      .scanner-frame {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #111827;
+        border: 3px solid var(--border);
+      }
+
+      #qrReader {
+        width: 100%;
+        height: 100%;
+      }
+
+      #qrReader video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover;
+      }
+
+      #qrReader img {
+        display: none;
+      }
+
+      .scanner-error {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--red-bg);
+        border: 1px solid var(--red-border);
+        color: var(--red-badge-text);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .scanner-retry {
+        margin-top: 12px;
+        padding: 10px 18px;
+        border: none;
+        border-radius: 10px;
+        background: var(--text);
+        color: #fff;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -259,6 +332,22 @@
         </div>
         <div class="boutique-name" id="boutiqueName"></div>
       </header>
+
+      <section class="scanner-card hidden" id="scannerView">
+        <h2 class="scanner-title">Scan customer code</h2>
+        <p class="scanner-hint">
+          Point your camera at the customer's QR code to verify their membership.
+        </p>
+        <div class="scanner-frame">
+          <div id="qrReader"></div>
+        </div>
+        <div class="scanner-error hidden" id="scannerError">
+          <p id="scannerErrorText">Unable to access camera.</p>
+          <button type="button" class="scanner-retry" id="scannerRetryBtn">
+            Try again
+          </button>
+        </div>
+      </section>
 
       <main class="card hidden" id="verifyCard">
         <div class="status-badge" id="statusBadge">
@@ -324,7 +413,7 @@
     <script>
       (function () {
         const params = new URLSearchParams(window.location.search);
-        const verifyToken = params.get("token") || "";
+        const initialToken = params.get("token") || "";
 
         const API_BASE_URL =
           document.querySelector('meta[name="ubique-api-base"]')?.content?.trim() ||
@@ -342,7 +431,14 @@
           verifyBoutiqueName: document.getElementById("verifyBoutiqueName"),
           errorState: document.getElementById("errorState"),
           verifyCard: document.getElementById("verifyCard"),
+          scannerView: document.getElementById("scannerView"),
+          scannerError: document.getElementById("scannerError"),
+          scannerErrorText: document.getElementById("scannerErrorText"),
+          scannerRetryBtn: document.getElementById("scannerRetryBtn"),
         };
+
+        let qrScanner = null;
+        let isProcessingScan = false;
 
         function getInitials(name) {
           return (name || "")
@@ -372,7 +468,40 @@
           }
         }
 
+        function extractToken(text) {
+          const value = (text || "").trim();
+          if (!value) return "";
+
+          try {
+            const url = new URL(value);
+            const token = url.searchParams.get("token");
+            if (token) return token;
+          } catch (error) {
+            // Not a URL — fall through to raw JWT check.
+          }
+
+          if (value.split(".").length === 3) {
+            return value;
+          }
+
+          return "";
+        }
+
+        function hideScanner() {
+          els.scannerView.classList.add("hidden");
+        }
+
+        function showScannerError(message) {
+          els.scannerErrorText.textContent = message;
+          els.scannerError.classList.remove("hidden");
+        }
+
+        function hideScannerError() {
+          els.scannerError.classList.add("hidden");
+        }
+
         function showError(message) {
+          hideScanner();
           els.verifyCard.classList.add("hidden");
           els.errorState.textContent =
             message ||
@@ -381,6 +510,8 @@
         }
 
         function applyData(data) {
+          hideScanner();
+          els.errorState.classList.add("hidden");
           els.verifyCard.dataset.boutiqueId = data.boutique_id || "";
           els.boutiqueName.textContent = data.boutique_name;
           els.verifyBoutiqueName.textContent = data.boutique_name;
@@ -407,13 +538,21 @@
           document.title = `Ubique · ${data.customer_name}`;
         }
 
-        async function loadVerifyDetails() {
-          if (!verifyToken) {
+        function recordScan(token) {
+          fetch(`${API_BASE_URL}/verify/scan`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          }).catch(() => {});
+        }
+
+        async function verify(token) {
+          if (!token) {
             showError("No verification token found. Please scan the code again.");
             return;
           }
 
-          if (isTokenExpired(verifyToken)) {
+          if (isTokenExpired(token)) {
             showError(
               "This verification link has expired. Please scan the code again."
             );
@@ -422,7 +561,7 @@
 
           try {
             const response = await fetch(
-              `${API_BASE_URL}/verify/details?token=${encodeURIComponent(verifyToken)}`
+              `${API_BASE_URL}/verify/details?token=${encodeURIComponent(token)}`
             );
 
             const payload = await response.json();
@@ -440,7 +579,13 @@
               return;
             }
 
+            history.replaceState(
+              null,
+              "",
+              `?token=${encodeURIComponent(token)}`
+            );
             applyData(data);
+            recordScan(token);
           } catch (error) {
             showError(
               "Unable to reach the verification service. Please try again."
@@ -448,7 +593,77 @@
           }
         }
 
-        loadVerifyDetails();
+        async function stopScanner() {
+          if (!qrScanner) return;
+
+          try {
+            await qrScanner.stop();
+          } catch (error) {
+            // Scanner may already be stopped.
+          }
+        }
+
+        async function handleScanSuccess(decodedText) {
+          if (isProcessingScan) return;
+
+          const token = extractToken(decodedText);
+          if (!token) return;
+
+          isProcessingScan = true;
+
+          try {
+            await stopScanner();
+            hideScanner();
+            await verify(token);
+          } finally {
+            isProcessingScan = false;
+          }
+        }
+
+        async function startScanner() {
+          if (typeof Html5Qrcode === "undefined") {
+            showScannerError(
+              "QR scanner failed to load. Please refresh and try again."
+            );
+            els.scannerView.classList.remove("hidden");
+            return;
+          }
+
+          hideScannerError();
+          els.errorState.classList.add("hidden");
+          els.verifyCard.classList.add("hidden");
+          els.scannerView.classList.remove("hidden");
+
+          await stopScanner();
+          qrScanner = new Html5Qrcode("qrReader");
+
+          try {
+            await qrScanner.start(
+              { facingMode: "environment" },
+              {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1,
+              },
+              handleScanSuccess,
+              () => {}
+            );
+          } catch (error) {
+            showScannerError(
+              "Camera access is required to scan QR codes. Please allow camera permission and try again."
+            );
+          }
+        }
+
+        els.scannerRetryBtn.addEventListener("click", () => {
+          startScanner();
+        });
+
+        if (initialToken) {
+          verify(initialToken);
+        } else {
+          startScanner();
+        }
       })();
     </script>
   </body>
