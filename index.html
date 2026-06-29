@@ -439,6 +439,8 @@
 
         let qrScanner = null;
         let isProcessingScan = false;
+        let activeVerifyToken = null;
+        const recordedTokens = new Set();
 
         function getInitials(name) {
           return (name || "")
@@ -539,11 +541,16 @@
         }
 
         function recordScan(token) {
+          if (recordedTokens.has(token)) return;
+          recordedTokens.add(token);
+
           fetch(`${API_BASE_URL}/verify/scan`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token }),
-          }).catch(() => {});
+          }).catch(() => {
+            recordedTokens.delete(token);
+          });
         }
 
         async function verify(token) {
@@ -552,14 +559,20 @@
             return;
           }
 
-          if (isTokenExpired(token)) {
-            showError(
-              "This verification link has expired. Please scan the code again."
-            );
+          if (activeVerifyToken === token) {
             return;
           }
 
+          activeVerifyToken = token;
+
           try {
+            if (isTokenExpired(token)) {
+              showError(
+                "This verification link has expired. Please scan the code again."
+              );
+              return;
+            }
+
             const response = await fetch(
               `${API_BASE_URL}/verify/details?token=${encodeURIComponent(token)}`
             );
@@ -590,6 +603,10 @@
             showError(
               "Unable to reach the verification service. Please try again."
             );
+          } finally {
+            if (activeVerifyToken === token) {
+              activeVerifyToken = null;
+            }
           }
         }
 
